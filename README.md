@@ -1,7 +1,7 @@
 # peek
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/Rust-1.85%2B-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/Rust-1.85%2B_(2024_edition)-orange.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-lightgrey.svg)]()
 [![Built with LLM assistance](https://img.shields.io/badge/Built%20with-LLM%20assistance-blueviolet.svg)]()
 
@@ -27,6 +27,7 @@ A modern, human-friendly replacement for `lsof`.
 - Subcommand-based CLI — no flag memorization required
 - Shows only the information that matters for each query
 - `--kill` flag to terminate processes directly from a port lookup
+- Resolves file paths for open file descriptors
 - Displays actual port numbers instead of resolving to obscure service names
 
 ## Installation
@@ -65,10 +66,27 @@ Kill whatever is using a port:
 peek port 8080 --kill
 ```
 
-### Process file listing (planned)
+### Process file listing
+
+List all open file descriptors for a process:
 
 ```bash
 peek pid 1234
+```
+
+```
+PID 1234 — node (/usr/local/bin/node)
+
+FD     TYPE     DETAIL
+0      FILE     /dev/null
+1      FILE     /var/log/app.log
+2      FILE     /var/log/app.log
+3      SOCK     TCP *:8080 -> *:0
+4      SOCK     UNIX
+5      PIPE     -
+6      KQUEUE   -
+
+6 open file descriptors
 ```
 
 ### File process lookup (planned)
