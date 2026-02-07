@@ -46,10 +46,7 @@ fn main() {
     match cli.command {
         Command::Port { port, kill } => cmd_port(port, kill),
         Command::Pid { pid } => cmd_pid(pid),
-        Command::File { path } => {
-            println!("Looking up file {path}...");
-            todo!("file process lookup")
-        }
+        Command::File { path } => cmd_file(&path),
     }
 }
 
@@ -153,6 +150,55 @@ fn cmd_pid(pid: u32) {
     {
         let _ = pid;
         eprintln!("PID lookup not yet implemented for this platform");
+        std::process::exit(1);
+    }
+}
+
+/// Handle the `peek file` subcommand.
+///
+/// Lists all processes that have the given file open, showing PID, process
+/// name, user, and executable path.
+fn cmd_file(path: &str) {
+    #[cfg(target_os = "macos")]
+    {
+        let entries = match platform::macos::file_lookup(path) {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        };
+
+        if entries.is_empty() {
+            println!("No process has {path} open");
+            return;
+        }
+
+        println!(
+            "{:<8} {:<16} {:<12} {}",
+            "PID", "PROCESS", "USER", "EXECUTABLE"
+        );
+
+        for e in &entries {
+            println!(
+                "{:<8} {:<16} {:<12} {}",
+                e.pid, e.process_name, e.user, e.exe_path
+            );
+        }
+
+        println!();
+        println!(
+            "{} process{} using {}",
+            entries.len(),
+            if entries.len() == 1 { "" } else { "es" },
+            path
+        );
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        eprintln!("File lookup not yet implemented for this platform");
         std::process::exit(1);
     }
 }

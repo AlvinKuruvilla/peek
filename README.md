@@ -20,13 +20,14 @@ A modern, human-friendly replacement for `lsof`.
 
 ## Overview
 
-`peek` answers the questions developers actually ask — *"what's on this port?"*, *"what files does this process have open?"* — without burying the answer in columns you don't need.
+`peek` answers the questions developers actually ask — *"what's on this port?"*, *"what files does this process have open?"*, *"what has this file open?"* — without burying the answer in columns you don't need.
 
 **Key features:**
 
 - Subcommand-based CLI — no flag memorization required
 - Shows only the information that matters for each query
 - `--kill` flag to terminate processes directly from a port lookup
+- Find what processes have a specific file open
 - Resolves file paths for open file descriptors
 - Displays actual port numbers instead of resolving to obscure service names
 
@@ -89,10 +90,20 @@ FD     TYPE     DETAIL
 6 open file descriptors
 ```
 
-### File process lookup (planned)
+### File process lookup
+
+Find what processes have a file open:
 
 ```bash
-peek file ./database.lock
+peek file /etc/hosts
+```
+
+```
+PID      PROCESS          USER         EXECUTABLE
+603      Electron         alvin        /Applications/Visual Studio Code.app/.../Electron
+1589     Brave Browser    alvin        /Applications/Brave Browser.app/.../Brave Browser
+
+2 processes using /etc/hosts
 ```
 
 ## Comparison with lsof

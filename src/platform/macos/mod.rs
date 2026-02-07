@@ -4,21 +4,21 @@
 //! - **PID lookup** uses [`libproc`] to list file descriptors via `proc_pidinfo`,
 //!   then resolves vnode paths through a small FFI call to `proc_pidfdinfo`
 //!   with `PROC_PIDFDVNODEPATHINFO` (not exposed by the `libproc` crate).
+//! - **File lookup** uses [`libproc`]'s `listpidspath` to find processes with
+//!   a given file open.
 
-use libc::{c_char, c_int, c_void, gid_t, off_t, uid_t};
+mod ffi;
+
 use libproc::libproc::file_info::{pidfdinfo, ListFDs, ProcFDType};
 use libproc::libproc::net_info::{SocketFDInfo, SocketInfoKind};
 use libproc::libproc::proc_pid::{listpidinfo, pidinfo, pidpath};
 use libproc::libproc::task_info::TaskAllInfo;
+use libproc::processes;
 use netstat2::{
     get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo, TcpState,
 };
 use std::path::Path;
 use std::process;
-
-// ---------------------------------------------------------------------------
-// Port lookup
-// ---------------------------------------------------------------------------
 
 /// A single result row from a port lookup.
 ///
@@ -130,10 +130,6 @@ pub fn port_lookup(port: u16) -> Vec<PortEntry> {
     entries
 }
 
-// ---------------------------------------------------------------------------
-// PID lookup
-// ---------------------------------------------------------------------------
-
 /// A single open file descriptor belonging to a process.
 pub struct FDEntry {
     /// The numeric file descriptor (e.g. `0` for stdin).
@@ -189,7 +185,7 @@ pub fn pid_lookup(pid: u32) -> Result<Vec<FDEntry>, String> {
         let fd_type = ProcFDType::from(fd.proc_fdtype);
 
         let (type_str, detail) = match fd_type {
-            ProcFDType::VNode => ("FILE".to_string(), vnode_detail(pid_i32, fd.proc_fd)),
+            ProcFDType::VNode => ("FILE".to_string(), ffi::vnode_detail(pid_i32, fd.proc_fd)),
             ProcFDType::Socket => ("SOCK".to_string(), socket_detail(pid_i32, fd.proc_fd)),
             ProcFDType::Pipe => ("PIPE".to_string(), "-".to_string()),
             ProcFDType::KQueue => ("KQUEUE".to_string(), "-".to_string()),
@@ -202,6 +198,81 @@ pub fn pid_lookup(pid: u32) -> Result<Vec<FDEntry>, String> {
             fd: fd.proc_fd,
             fd_type: type_str,
             detail,
+        });
+    }
+
+    Ok(entries)
+}
+
+/// A single result row from a file lookup.
+///
+/// Each entry represents one process that has the queried file open.
+pub struct FileEntry {
+    /// OS process identifier.
+    pub pid: u32,
+    /// Short process name (basename of the executable).
+    pub process_name: String,
+    /// Username of the process owner.
+    pub user: String,
+    /// Absolute path to the process executable (or `"?"` on failure).
+    pub exe_path: String,
+}
+
+/// Returns all processes that have the file at `path` open.
+///
+/// Uses `libproc`'s `listpidspath` under the hood to query the kernel for
+/// processes referencing the given path. Each PID is then enriched with the
+/// process name, owning user, and executable path.
+///
+/// # Errors
+///
+/// Returns `Err` if the path does not exist or cannot be inspected.
+///
+/// # Examples
+///
+/// A well-known file like `/etc/hosts` can be queried without error:
+///
+/// ```
+/// use peek::platform::macos;
+///
+/// // /etc/hosts exists on every macOS system.
+/// let result = macos::file_lookup("/etc/hosts");
+/// assert!(result.is_ok());
+/// ```
+///
+/// A nonexistent path returns an error:
+///
+/// ```
+/// use peek::platform::macos;
+///
+/// let result = macos::file_lookup("/nonexistent/file/path");
+/// assert!(result.is_err());
+/// ```
+pub fn file_lookup(path: &str) -> Result<Vec<FileEntry>, String> {
+    let path = Path::new(path);
+
+    if !path.exists() {
+        return Err(format!("No such file: {}", path.display()));
+    }
+
+    let canonical = path
+        .canonicalize()
+        .map_err(|e| format!("Cannot resolve path {}: {e}", path.display()))?;
+
+    let pids = processes::pids_by_path(&canonical, false, false)
+        .map_err(|e| format!("Cannot list processes for {}: {e}", canonical.display()))?;
+
+    let mut entries = Vec::new();
+
+    for pid in pids {
+        let (process_name, user) = process_info_for_pid(pid);
+        let exe_path = exe_path_for_pid(pid);
+
+        entries.push(FileEntry {
+            pid,
+            process_name,
+            user,
+            exe_path,
         });
     }
 
@@ -238,47 +309,6 @@ fn socket_detail(pid: i32, fd: i32) -> String {
         _ => format!("{kind:?}"),
     }
 }
-
-/// Returns the filesystem path for a vnode (regular file) FD.
-///
-/// Uses a direct FFI call to `proc_pidfdinfo` with
-/// `PROC_PIDFDVNODEPATHINFO` because the `libproc` crate does not expose
-/// the [`VnodeFDInfoWithPath`] struct as a safe Rust type.
-///
-/// Returns `"-"` if the path cannot be resolved.
-fn vnode_detail(pid: i32, fd: i32) -> String {
-    let mut info: VnodeFDInfoWithPath = unsafe { std::mem::zeroed() };
-    let buffer_size = std::mem::size_of::<VnodeFDInfoWithPath>() as c_int;
-
-    let ret = unsafe {
-        proc_pidfdinfo(
-            pid,
-            fd,
-            PROC_PIDFDVNODEPATHINFO,
-            &mut info as *mut _ as *mut c_void,
-            buffer_size,
-        )
-    };
-
-    if ret <= 0 {
-        return "-".to_string();
-    }
-
-    // Extract the null-terminated path from the fixed-size `c_char` buffer.
-    let path_bytes: Vec<u8> = info
-        .pvip
-        .vip_path
-        .iter()
-        .take_while(|&&c| c != 0)
-        .map(|&c| c as u8)
-        .collect();
-
-    String::from_utf8(path_bytes).unwrap_or_else(|_| "-".to_string())
-}
-
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
 
 /// Returns `(process_name, username)` for the given `pid`.
 ///
@@ -360,91 +390,4 @@ fn format_tcp_state(state: &TcpState) -> String {
         TcpState::Closing => "CLOSING".to_string(),
         _ => "UNKNOWN".to_string(),
     }
-}
-
-// ---------------------------------------------------------------------------
-// FFI: vnode_fdinfowithpath
-//
-// The `libproc` crate exposes `pidfdinfo` for socket FDs (`SocketFDInfo`)
-// but not for vnode FDs with path info. We define the minimal set of
-// structs needed to call `proc_pidfdinfo(pid, fd, PROC_PIDFDVNODEPATHINFO)`
-// and extract the file path.
-//
-// Struct layouts are taken from XNU's `<sys/proc_info.h>`.
-// ---------------------------------------------------------------------------
-
-/// Flavor constant for `proc_pidfdinfo` to request vnode path information.
-const PROC_PIDFDVNODEPATHINFO: c_int = 2;
-
-unsafe extern "C" {
-    fn proc_pidfdinfo(
-        pid: c_int,
-        fd: c_int,
-        flavor: c_int,
-        buffer: *mut c_void,
-        buffersize: c_int,
-    ) -> c_int;
-}
-
-/// Mirrors XNU's `struct vinfo_stat`.
-#[repr(C)]
-struct VinfoStat {
-    vst_dev: u32,
-    vst_mode: u16,
-    vst_nlink: u16,
-    vst_ino: u64,
-    vst_uid: uid_t,
-    vst_gid: gid_t,
-    vst_atime: i64,
-    vst_atimensec: i64,
-    vst_mtime: i64,
-    vst_mtimensec: i64,
-    vst_ctime: i64,
-    vst_ctimensec: i64,
-    vst_birthtime: i64,
-    vst_birthtimensec: i64,
-    vst_size: off_t,
-    vst_blocks: i64,
-    vst_blksize: i32,
-    vst_flags: u32,
-    vst_gen: u32,
-    vst_rdev: u32,
-    vst_qspare: [i64; 2],
-}
-
-/// Mirrors XNU's `struct vnode_info`.
-#[repr(C)]
-struct VnodeInfo {
-    vi_stat: VinfoStat,
-    vi_type: c_int,
-    vi_pad: c_int,
-    vi_fsid: libc::fsid_t,
-}
-
-/// Mirrors XNU's `struct vnode_info_path`.
-#[repr(C)]
-struct VnodeInfoPath {
-    vip_vi: VnodeInfo,
-    /// Null-terminated filesystem path, up to 1024 bytes.
-    vip_path: [c_char; 1024],
-}
-
-/// Mirrors XNU's `struct proc_fileinfo`.
-#[repr(C)]
-struct ProcFileInfo {
-    fi_openflags: u32,
-    fi_status: u32,
-    fi_offset: off_t,
-    fi_type: i32,
-    fi_guardflags: u32,
-}
-
-/// Mirrors XNU's `struct vnode_fdinfowithpath`.
-///
-/// Returned by `proc_pidfdinfo` when called with flavor
-/// [`PROC_PIDFDVNODEPATHINFO`].
-#[repr(C)]
-struct VnodeFDInfoWithPath {
-    pfi: ProcFileInfo,
-    pvip: VnodeInfoPath,
 }
