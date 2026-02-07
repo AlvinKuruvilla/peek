@@ -1,0 +1,11 @@
+[package]
+name = "peek"
+version = "0.1.0"
+edition = "2024"
+description = "A modern, human-friendly replacement for lsof"
+license = "MIT"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+libc = "0.2.180"
+netstat2 = "0.11.2"
