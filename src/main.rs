@@ -1,7 +1,13 @@
-use clap::{Parser, Subcommand};
-use std::collections::BTreeSet;
+//! `peek` — a modern, human-friendly replacement for `lsof`.
+//!
+//! Provides subcommands for the three most common `lsof` use cases:
+//! - `peek port <PORT>` — what process is bound to this port?
+//! - `peek pid <PID>` — what files does this process have open?
+//! - `peek file <PATH>` — what process has this file open?
 
-mod platform;
+use clap::{Parser, Subcommand};
+use peek::platform;
+use std::collections::BTreeSet;
 
 #[derive(Parser)]
 #[command(name = "peek")]
@@ -13,23 +19,23 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Show what process is using a given port
+    /// Show what process is using a given port.
     Port {
-        /// Port number to look up
+        /// Port number to look up.
         port: u16,
 
-        /// Kill the process(es) using this port
+        /// Send `SIGTERM` to all processes using this port after displaying them.
         #[arg(long)]
         kill: bool,
     },
-    /// Show open files for a given process
+    /// Show all open file descriptors for a given process.
     Pid {
-        /// Process ID to inspect
+        /// Process ID to inspect.
         pid: u32,
     },
-    /// Show what process has a given file open
+    /// Show what process has a given file open.
     File {
-        /// Path to the file
+        /// Path to the file.
         path: String,
     },
 }
@@ -39,10 +45,7 @@ fn main() {
 
     match cli.command {
         Command::Port { port, kill } => cmd_port(port, kill),
-        Command::Pid { pid } => {
-            println!("Looking up PID {pid}...");
-            todo!("pid file listing")
-        }
+        Command::Pid { pid } => cmd_pid(pid),
         Command::File { path } => {
             println!("Looking up file {path}...");
             todo!("file process lookup")
@@ -50,6 +53,11 @@ fn main() {
     }
 }
 
+/// Handle the `peek port` subcommand.
+///
+/// Enumerates all TCP/UDP sockets on the system, filters to the requested
+/// port, and prints a table of matching processes. When `kill` is `true`,
+/// sends `SIGTERM` to each unique PID after printing.
 fn cmd_port(port: u16, kill: bool) {
     #[cfg(target_os = "macos")]
     {
@@ -60,7 +68,6 @@ fn cmd_port(port: u16, kill: bool) {
             return;
         }
 
-        // Header
         println!(
             "{:<8} {:<16} {:<12} {:<6} {:<24} {:<24} {}",
             "PID", "PROCESS", "USER", "PROTO", "LOCAL", "REMOTE", "STATE"
@@ -87,7 +94,7 @@ fn cmd_port(port: u16, kill: bool) {
         if kill {
             for pid in &pids_to_kill {
                 print!("Killing PID {pid}...");
-                // SAFETY: sending SIGTERM to a valid PID.
+                // SAFETY: `pid` is a valid PID obtained from the socket table.
                 let result = unsafe { libc::kill(*pid as i32, libc::SIGTERM) };
                 if result == 0 {
                     println!(" done");
@@ -102,6 +109,50 @@ fn cmd_port(port: u16, kill: bool) {
     {
         let _ = kill;
         eprintln!("Port lookup not yet implemented for this platform");
+        std::process::exit(1);
+    }
+}
+
+/// Handle the `peek pid` subcommand.
+///
+/// Prints the process name and executable path, then lists every open file
+/// descriptor with its type and detail (file path for vnodes, protocol/port
+/// for sockets).
+fn cmd_pid(pid: u32) {
+    #[cfg(target_os = "macos")]
+    {
+        let name = platform::macos::name_for_pid(pid);
+        let exe = platform::macos::exe_path_for_pid(pid);
+        println!("PID {pid} — {name} ({exe})");
+        println!();
+
+        let entries = match platform::macos::pid_lookup(pid) {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        };
+
+        if entries.is_empty() {
+            println!("No open file descriptors found");
+            return;
+        }
+
+        println!("{:<6} {:<8} {}", "FD", "TYPE", "DETAIL");
+
+        for e in &entries {
+            println!("{:<6} {:<8} {}", e.fd, e.fd_type, e.detail);
+        }
+
+        println!();
+        println!("{} open file descriptors", entries.len());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = pid;
+        eprintln!("PID lookup not yet implemented for this platform");
         std::process::exit(1);
     }
 }

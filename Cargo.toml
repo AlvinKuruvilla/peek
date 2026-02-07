@@ -8,4 +8,5 @@ license = "MIT"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 libc = "0.2.180"
+libproc = "0.14.11"
 netstat2 = "0.11.2"
