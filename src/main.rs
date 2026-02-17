@@ -56,9 +56,7 @@ fn format_state_colored(state: &str) -> String {
             state.if_supports_color(Stdout, |s| s.yellow()).to_string()
         }
         "CLOSED" => state.if_supports_color(Stdout, |s| s.red()).to_string(),
-        "SYN_SENT" | "SYN_RECV" => {
-            state.if_supports_color(Stdout, |s| s.magenta()).to_string()
-        }
+        "SYN_SENT" | "SYN_RECV" => state.if_supports_color(Stdout, |s| s.magenta()).to_string(),
         _ => state.to_string(),
     }
 }
@@ -151,15 +149,11 @@ fn cmd_port(port: u16, kill: bool) {
                 // SAFETY: `pid` is a valid PID obtained from the socket table.
                 let result = unsafe { libc::kill(*pid as i32, libc::SIGTERM) };
                 if result == 0 {
-                    println!(
-                        " {}",
-                        "done".if_supports_color(Stdout, |s| s.green())
-                    );
+                    println!(" {}", "done".if_supports_color(Stdout, |s| s.green()));
                 } else {
                     println!(
                         " {}",
-                        "failed (may need sudo)"
-                            .if_supports_color(Stdout, |s| s.red())
+                        "failed (may need sudo)".if_supports_color(Stdout, |s| s.red())
                     );
                 }
             }
@@ -212,8 +206,7 @@ fn cmd_pid(pid: u32) {
         if entries.is_empty() {
             println!(
                 "{}",
-                "No open file descriptors found"
-                    .if_supports_color(Stdout, |s| s.dimmed())
+                "No open file descriptors found".if_supports_color(Stdout, |s| s.dimmed())
             );
             return;
         }
@@ -272,8 +265,7 @@ fn cmd_file(path: &str) {
         if entries.is_empty() {
             println!(
                 "{}",
-                format!("No process has {path} open")
-                    .if_supports_color(Stdout, |s| s.dimmed())
+                format!("No process has {path} open").if_supports_color(Stdout, |s| s.dimmed())
             );
             return;
         }

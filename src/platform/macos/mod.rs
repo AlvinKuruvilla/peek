@@ -9,15 +9,13 @@
 
 mod ffi;
 
-use libproc::libproc::file_info::{pidfdinfo, ListFDs, ProcFDType};
+use crate::PeekError;
+use libproc::libproc::file_info::{ListFDs, ProcFDType, pidfdinfo};
 use libproc::libproc::net_info::{SocketFDInfo, SocketInfoKind};
 use libproc::libproc::proc_pid::{listpidinfo, pidinfo, pidpath};
 use libproc::libproc::task_info::TaskAllInfo;
 use libproc::processes;
-use netstat2::{
-    get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo, TcpState,
-};
-use crate::PeekError;
+use netstat2::{AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo, TcpState, get_sockets_info};
 use std::path::Path;
 use std::process;
 
@@ -172,8 +170,8 @@ pub struct FDEntry {
 pub fn pid_lookup(pid: u32) -> Result<Vec<FDEntry>, PeekError> {
     let pid_i32 = pid as i32;
 
-    let info = pidinfo::<TaskAllInfo>(pid_i32, 0)
-        .map_err(|e| PeekError::PidInspect { pid, reason: e })?;
+    let info =
+        pidinfo::<TaskAllInfo>(pid_i32, 0).map_err(|e| PeekError::PidInspect { pid, reason: e })?;
 
     let fds = listpidinfo::<ListFDs>(pid_i32, info.pbsd.pbi_nfiles as usize)
         .map_err(|e| PeekError::FdList { pid, reason: e })?;
@@ -254,15 +252,13 @@ pub fn file_lookup(path: &str) -> Result<Vec<FileEntry>, PeekError> {
         return Err(PeekError::NoSuchFile(path.to_path_buf()));
     }
 
-    let canonical = path
-        .canonicalize()
-        .map_err(|e| PeekError::PathResolve {
-            path: path.to_path_buf(),
-            source: e,
-        })?;
+    let canonical = path.canonicalize().map_err(|e| PeekError::PathResolve {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
 
-    let pids = processes::pids_by_path(&canonical, false, false)
-        .map_err(|e| PeekError::ProcessList {
+    let pids =
+        processes::pids_by_path(&canonical, false, false).map_err(|e| PeekError::ProcessList {
             path: canonical.clone(),
             reason: e.to_string(),
         })?;
