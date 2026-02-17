@@ -58,7 +58,13 @@ fn main() {
 fn cmd_port(port: u16, kill: bool) {
     #[cfg(target_os = "macos")]
     {
-        let entries = platform::macos::port_lookup(port);
+        let entries = match platform::macos::port_lookup(port) {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        };
 
         if entries.is_empty() {
             println!("No process found on port {port}");

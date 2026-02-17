@@ -47,8 +47,11 @@ pub struct PortEntry {
 
 /// Returns all processes that have a socket bound to `port`.
 ///
-/// Queries both IPv4 and IPv6 across TCP and UDP. If the underlying
-/// socket enumeration fails, prints an error to stderr and exits.
+/// Queries both IPv4 and IPv6 across TCP and UDP.
+///
+/// # Errors
+///
+/// Returns `Err` if the underlying socket enumeration fails.
 ///
 /// # Examples
 ///
@@ -57,7 +60,7 @@ pub struct PortEntry {
 /// ```
 /// use peek::platform::macos;
 ///
-/// let entries = macos::port_lookup(1); // port 1 is almost certainly unused
+/// let entries = macos::port_lookup(1).unwrap(); // port 1 is almost certainly unused
 /// // May or may not be empty depending on the system, but should not panic.
 /// ```
 ///
@@ -66,22 +69,17 @@ pub struct PortEntry {
 /// ```no_run
 /// use peek::platform::macos;
 ///
-/// let entries = macos::port_lookup(8080);
+/// let entries = macos::port_lookup(8080).unwrap();
 /// for entry in &entries {
 ///     println!("{} (PID {}) on {}:{}", entry.process_name, entry.pid, entry.local_addr, entry.local_port);
 /// }
 /// ```
-pub fn port_lookup(port: u16) -> Vec<PortEntry> {
+pub fn port_lookup(port: u16) -> Result<Vec<PortEntry>, String> {
     let af_flags = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;
     let proto_flags = ProtocolFlags::TCP | ProtocolFlags::UDP;
 
-    let sockets = match get_sockets_info(af_flags, proto_flags) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Failed to enumerate sockets: {e}");
-            process::exit(1);
-        }
-    };
+    let sockets = get_sockets_info(af_flags, proto_flags)
+        .map_err(|e| format!("Failed to enumerate sockets: {e}"))?;
 
     let mut entries = Vec::new();
 
@@ -127,7 +125,7 @@ pub fn port_lookup(port: u16) -> Vec<PortEntry> {
         }
     }
 
-    entries
+    Ok(entries)
 }
 
 /// A single open file descriptor belonging to a process.
