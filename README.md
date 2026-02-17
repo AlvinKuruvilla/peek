@@ -1,5 +1,6 @@
 # peek
 
+[![CI](https://github.com/AlvinKuruvilla/peek/actions/workflows/ci.yml/badge.svg)](https://github.com/AlvinKuruvilla/peek/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-1.85%2B_(2024_edition)-orange.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-lightgrey.svg)]()
