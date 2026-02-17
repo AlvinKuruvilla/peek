@@ -394,6 +394,7 @@ dependencies = [
  "libc",
  "libproc",
  "netstat2",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

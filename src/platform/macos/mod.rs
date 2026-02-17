@@ -17,6 +17,7 @@ use libproc::processes;
 use netstat2::{
     get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo, TcpState,
 };
+use crate::PeekError;
 use std::path::Path;
 use std::process;
 
@@ -74,12 +75,12 @@ pub struct PortEntry {
 ///     println!("{} (PID {}) on {}:{}", entry.process_name, entry.pid, entry.local_addr, entry.local_port);
 /// }
 /// ```
-pub fn port_lookup(port: u16) -> Result<Vec<PortEntry>, String> {
+pub fn port_lookup(port: u16) -> Result<Vec<PortEntry>, PeekError> {
     let af_flags = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;
     let proto_flags = ProtocolFlags::TCP | ProtocolFlags::UDP;
 
     let sockets = get_sockets_info(af_flags, proto_flags)
-        .map_err(|e| format!("Failed to enumerate sockets: {e}"))?;
+        .map_err(|e| PeekError::SocketEnum(e.to_string()))?;
 
     let mut entries = Vec::new();
 
@@ -168,14 +169,14 @@ pub struct FDEntry {
 /// let result = macos::pid_lookup(u32::MAX);
 /// assert!(result.is_err());
 /// ```
-pub fn pid_lookup(pid: u32) -> Result<Vec<FDEntry>, String> {
+pub fn pid_lookup(pid: u32) -> Result<Vec<FDEntry>, PeekError> {
     let pid_i32 = pid as i32;
 
     let info = pidinfo::<TaskAllInfo>(pid_i32, 0)
-        .map_err(|e| format!("Cannot inspect PID {pid}: {e}"))?;
+        .map_err(|e| PeekError::PidInspect { pid, reason: e })?;
 
     let fds = listpidinfo::<ListFDs>(pid_i32, info.pbsd.pbi_nfiles as usize)
-        .map_err(|e| format!("Cannot list FDs for PID {pid}: {e}"))?;
+        .map_err(|e| PeekError::FdList { pid, reason: e })?;
 
     let mut entries = Vec::new();
 
@@ -246,19 +247,25 @@ pub struct FileEntry {
 /// let result = macos::file_lookup("/nonexistent/file/path");
 /// assert!(result.is_err());
 /// ```
-pub fn file_lookup(path: &str) -> Result<Vec<FileEntry>, String> {
+pub fn file_lookup(path: &str) -> Result<Vec<FileEntry>, PeekError> {
     let path = Path::new(path);
 
     if !path.exists() {
-        return Err(format!("No such file: {}", path.display()));
+        return Err(PeekError::NoSuchFile(path.to_path_buf()));
     }
 
     let canonical = path
         .canonicalize()
-        .map_err(|e| format!("Cannot resolve path {}: {e}", path.display()))?;
+        .map_err(|e| PeekError::PathResolve {
+            path: path.to_path_buf(),
+            source: e,
+        })?;
 
     let pids = processes::pids_by_path(&canonical, false, false)
-        .map_err(|e| format!("Cannot list processes for {}: {e}", canonical.display()))?;
+        .map_err(|e| PeekError::ProcessList {
+            path: canonical.clone(),
+            reason: e.to_string(),
+        })?;
 
     let mut entries = Vec::new();
 
