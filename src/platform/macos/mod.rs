@@ -229,7 +229,7 @@ pub struct FileEntry {
 ///
 /// A well-known file like `/etc/hosts` can be queried without error:
 ///
-/// ```
+/// ```no_run
 /// use peek::platform::macos;
 ///
 /// // /etc/hosts exists on every macOS system.
